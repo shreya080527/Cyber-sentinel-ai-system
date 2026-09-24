@@ -1,0 +1,214 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// User roles: "registered_user" | "student_user" | "senior_citizen" | "cybersecurity_analyst" | "administrator"
+// Risk levels: "SAFE" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
+// User status: "ACTIVE" | "INACTIVE" | "SUSPENDED"
+
+model User {
+  id           String         @id @default(uuid())
+  name         String
+  email        String         @unique
+  phone        String?
+  passwordHash String
+  role         String         @default("registered_user")
+  status       String         @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  account           Account?
+  notifications     Notification[]
+  urlChecks         URLCheck[]
+  scamReports       ScamReport[]
+  phoneCallChecks   PhoneCallCheck[]
+  emergencyContacts EmergencyContact[]
+  reportedIncidents ReportedIncident[] @relation("ReportedByUser")
+  assignedIncidents ReportedIncident[] @relation("AssignedAnalystIncident")
+  assignedCases     Case[]             @relation("AssignedAnalystCase")
+  investigationNotes InvestigationNote[]
+  auditLogs         AuditLog[]
+}
+
+model Account {
+  id                     String   @id @default(uuid())
+  userId                 String   @unique
+  bio                    String?
+  institution            String?
+  department             String?
+  notificationEmailOptIn Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model EmergencyContact {
+  id               String   @id @default(uuid())
+  userId           String
+  name             String
+  phone            String
+  email            String?
+  relationship     String   @default("CHILD") // CHILD, SPOUSE, CAREGIVER, FRIEND, OTHER
+  notifyOnCritical Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  message     String
+  type        String   @default("ALERT") // "ANALYSIS_COMPLETE", "HIGH_RISK_DETECTED", "SECURITY_ALERT", "RECOMMENDATION", "FAMILY_ALERT", "CASE_UPDATE"
+  read        Boolean  @default(false)
+  createdDate DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model URLCheck {
+  id              String          @id @default(uuid())
+  userId          String
+  url             String
+  checkedDate     DateTime        @default(now())
+  riskLevel       String          @default("SAFE")
+  confidenceScore Float           @default(0.0)
+  threatType      String?
+  indicators      String          // Stored as JSON string
+  explanation     String
+  recommendation  String
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  riskAssessments RiskAssessment[]
+}
+
+model ScamReport {
+  id                 String          @id @default(uuid())
+  userId             String
+  reportType         String          // "JOB_SCAM" | "RECRUITMENT_MESSAGE"
+  companyName        String?
+  jobTitle           String?
+  jobDescription     String?
+  recruiterName      String?
+  recruiterEmail     String?
+  contactNumber      String?
+  recruitmentMessage String?
+  salaryOffer        String?
+  websiteUrl         String?
+  additionalDetails  String?
+  riskLevel          String          @default("SAFE")
+  confidenceScore    Float           @default(0.0)
+  scamIndicators     String          // Stored as JSON string
+  explanation        String
+  recommendation     String
+  createdDate        DateTime        @default(now())
+
+  user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  riskAssessments    RiskAssessment[]
+}
+
+model PhoneCallCheck {
+  id              String          @id @default(uuid())
+  userId          String
+  callerNumber    String
+  callerName      String?
+  transcript      String?
+  riskLevel       String          @default("SAFE")
+  confidenceScore Float           @default(0.0)
+  threatType      String?
+  indicators      String          // Stored as JSON string
+  explanation     String?
+  recommendation  String?
+  familyAlertSent Boolean         @default(false)
+  createdDate     DateTime        @default(now())
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  riskAssessments RiskAssessment[]
+}
+
+model RiskAssessment {
+  id               String          @id @default(uuid())
+  urlCheckId       String?
+  scamReportId     String?
+  phoneCallCheckId String?
+  riskLevel        String
+  confidenceScore  Float
+  threatType       String?
+  indicators       String          // Stored as JSON string
+  explanation      String
+  recommendation   String
+  createdAt        DateTime        @default(now())
+
+  urlCheck         URLCheck?       @relation(fields: [urlCheckId], references: [id], onDelete: Cascade)
+  scamReport       ScamReport?     @relation(fields: [scamReportId], references: [id], onDelete: Cascade)
+  phoneCallCheck   PhoneCallCheck? @relation(fields: [phoneCallCheckId], references: [id], onDelete: Cascade)
+}
+
+model ReportedIncident {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  description String
+  incidentType String  @default("OTHER") // PHISHING, JOB_SCAM, PHONE_SCAM, IDENTITY_THEFT, MALWARE, OTHER
+  evidence    String?  // Text, links, or JSON metadata
+  riskLevel   String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  status      String   @default("OPEN") // OPEN, UNDER_REVIEW, IN_PROGRESS, RESOLVED, CLOSED
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  assignedToId String?
+  resolution  String?
+  createdDate DateTime @default(now())
+  updatedDate DateTime @updatedAt
+
+  reporter   User     @relation("ReportedByUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedTo User?    @relation("AssignedAnalystIncident", fields: [assignedToId], references: [id])
+  cases      Case[]
+  notes      InvestigationNote[]
+}
+
+model Case {
+  id          String   @id @default(uuid())
+  incidentId  String
+  analystId   String?
+  title       String?
+  status      String   @default("OPEN") // OPEN, UNDER_REVIEW, IN_PROGRESS, RESOLVED, CLOSED
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  notes       String?  // Summary notes
+  createdDate DateTime @default(now())
+  updatedDate DateTime @updatedAt
+
+  incident ReportedIncident    @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  analyst  User?               @relation("AssignedAnalystCase", fields: [analystId], references: [id])
+  caseNotes InvestigationNote[]
+}
+
+model InvestigationNote {
+  id         String   @id @default(uuid())
+  caseId     String?
+  incidentId String?
+  analystId  String
+  note       String
+  createdAt  DateTime @default(now())
+
+  case       Case?             @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  incident   ReportedIncident? @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  analyst    User              @relation(fields: [analystId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  role      String?
+  action    String
+  details   String?
+  ipAddress String?  @default("127.0.0.1")
+  timestamp DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
